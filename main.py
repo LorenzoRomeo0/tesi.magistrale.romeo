@@ -415,8 +415,9 @@ def main(args):
             tasknet_scheduler, args.ap_score_thresh, args.results_dir, args.num_epochs_tasknet, args.save_all_weights, skip_saving_weights=True)
          print("Computed AP for comparison with UNet indoor set")
          sys.exit()
+      tasknet_scaler = torch.amp.GradScaler('cuda', enabled=('cuda' in str(args.device) and torch.cuda.is_available()))
       for epoch in range(starting_epoch, args.num_epochs_tasknet+1):
-         train_temp_loss = train_tasknet(train_dataloader, epoch, args.device, args.tasknet_save_path, tasknet, tasknet_optimizer)
+         train_temp_loss = train_tasknet(train_dataloader, epoch, args.device, args.tasknet_save_path, tasknet, tasknet_optimizer, scaler=tasknet_scaler)
          val_temp_loss = val_tasknet(val_dataloader, epoch, args.device, args.tasknet_save_path, tasknet, tasknet_optimizer,
             tasknet_scheduler, args.ap_score_thresh, args.results_dir, args.num_epochs_tasknet, args.save_all_weights, skip_saving_weights=False)
          tasknet_scheduler.step()
@@ -437,8 +438,9 @@ def main(args):
       load_checkpoint(unet, args.unet_fw_weights_load, unet_optimizer, unet_scheduler)
       for param in unet.parameters(): #Freeze UNet layers
          param.requires_grad = False
+      tasknet_scaler = torch.amp.GradScaler('cuda', enabled=('cuda' in str(args.device) and torch.cuda.is_available()))
       for epoch in range(starting_epoch, args.num_epochs_tasknet+1):
-         train_temp_loss = finetune_tasknet_train(train_dataloader, epoch, args.device, unet, tasknet, tasknet_optimizer)
+         train_temp_loss = finetune_tasknet_train(train_dataloader, epoch, args.device, unet, tasknet, tasknet_optimizer, scaler=tasknet_scaler)
          val_temp_loss = finetune_tasknet_val(val_dataloader, epoch, args.device, unet, args.tasknet_save_path, tasknet, tasknet_optimizer,
                tasknet_scheduler, args.ap_score_thresh, args.results_dir, args.num_epochs_tasknet, args.save_all_weights)
          tasknet_scheduler.step()

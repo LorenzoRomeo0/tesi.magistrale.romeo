@@ -545,20 +545,29 @@ def val_similarity_disturbed_images(val_dataloader, device, results_dir, lpips_m
       file.write(f"MSE: {mse_score}\nMAE: {mae_score}\nMS_SSIM: {ms_ssim_score}\nLPIPS: {lpips_score}\n")
    return
 
-def train_tasknet(train_dataloader, epoch, device, tasknet_save_path, tasknet, tasknet_optimizer): #tasknet training
+def train_tasknet(train_dataloader, epoch, device, tasknet_save_path, tasknet, tasknet_optimizer, scaler=None): #tasknet training
    tasknet.train()
    for param in tasknet.parameters():
       param.requires_grad = True
    batch_size = len(train_dataloader)
    running_loss = 0
+   use_amp = 'cuda' in str(device) and torch.cuda.is_available()
+   if scaler is None and use_amp:
+      scaler = torch.amp.GradScaler('cuda')
    for imgs, targets in tqdm(train_dataloader, desc=f'Epoch {epoch} - Train Tasknet'):
       imgs = list(img.to(device) for img in imgs)
       targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
-      loss_dict = tasknet(imgs, targets)
-      losses = sum(loss for loss in loss_dict.values())
       tasknet_optimizer.zero_grad(set_to_none=True)
-      losses.backward()
-      tasknet_optimizer.step()
+      with torch.amp.autocast(device_type='cuda', enabled=use_amp):
+         loss_dict = tasknet(imgs, targets)
+         losses = sum(loss for loss in loss_dict.values())
+      if scaler is not None and use_amp:
+         scaler.scale(losses).backward()
+         scaler.step(tasknet_optimizer)
+         scaler.update()
+      else:
+         losses.backward()
+         tasknet_optimizer.step()
       running_loss += losses.item()
    running_loss /= batch_size
    return running_loss
@@ -637,25 +646,34 @@ def test_tasknet(test_dataloader, device, tasknet, ap_score_threshold, results_d
    compute_custom_metric(evaluator_complete_metric, results_dir, epoch)  
    return
    
-def finetune_tasknet_train(train_dataloader, epoch, device, model, tasknet, tasknet_optimizer): #Train model
+def finetune_tasknet_train(train_dataloader, epoch, device, model, tasknet, tasknet_optimizer, scaler=None): #Train model
    model.eval()
    tasknet.train()
    for param in tasknet.parameters():
       param.requires_grad = True
    batch_size = len(train_dataloader)
    running_loss = 0
+   use_amp = 'cuda' in str(device) and torch.cuda.is_available()
+   if scaler is None and use_amp:
+      scaler = torch.amp.GradScaler('cuda')
    for imgs, targets in tqdm(train_dataloader, desc=f'Epoch {epoch} - Train model'):
       imgs, _ = imgs.decompose()
       imgs = imgs.to(device)
       targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]		
-      reconstructed = model(imgs)
-      targets = adjust_orig_target_to_reconstructed_imgs(targets, imgs, reconstructed) #needed as explained before
-      reconstructed_loss_dict = tasknet(reconstructed, targets) #grab tasknet losses
-      reconstructed_losses = sum(loss for loss in reconstructed_loss_dict.values()) 
-      true_loss = reconstructed_losses
       tasknet_optimizer.zero_grad(set_to_none=True) #backpropagation
-      true_loss.backward()
-      tasknet_optimizer.step()		
+      with torch.amp.autocast(device_type='cuda', enabled=use_amp):
+         reconstructed = model(imgs)
+         targets = adjust_orig_target_to_reconstructed_imgs(targets, imgs, reconstructed) #needed as explained before
+         reconstructed_loss_dict = tasknet(reconstructed, targets) #grab tasknet losses
+         reconstructed_losses = sum(loss for loss in reconstructed_loss_dict.values()) 
+         true_loss = reconstructed_losses
+      if scaler is not None and use_amp:
+         scaler.scale(true_loss).backward()
+         scaler.step(tasknet_optimizer)
+         scaler.update()
+      else:
+         true_loss.backward()
+         tasknet_optimizer.step()		
       running_loss += true_loss.item() #storing value   
    running_loss /= batch_size #average loss
    return running_loss
