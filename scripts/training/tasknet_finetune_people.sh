@@ -2,6 +2,8 @@
 set -u -e #safety net to avoid using not setted variables
 cd ../..
 
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
 RESULTS_DIR='results'
 TASKNET_SAVE_PATH='tasknet_weights/tasknet'
 
@@ -10,7 +12,7 @@ mkdir -p $EXPERIMENT_DIR
 USE_DATASET_SUBSET=0
 
 NUM_EPOCHS_TASKNET=10
-BATCH_SIZE_TASKNET=8
+BATCH_SIZE_TASKNET=4
 LR_TASKNET=1e-3
 
 TASKNET_WEIGHTS_FW_TO_SAVE1="${TASKNET_SAVE_PATH}_${NUM_EPOCHS_TASKNET}.pt"
