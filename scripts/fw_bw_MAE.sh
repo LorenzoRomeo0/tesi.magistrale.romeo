@@ -37,9 +37,12 @@ UNET_WEIGHTS_BW_TO_SAVE2="${UNET_SAVE_PATH}_bw_${HALF_WAY}.pt"
 
 #If you want to use five classes, add flag --five_classes to all commands
 
+# Solo MAE
 for i in "0.5" "0.6" "0.7" "0.8" "0.9"; do
    a=( $i )
    WEIGHT=${a[0]}
+
+   # training
    python3 main.py --not_use_custom_filter_prop --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --num_epochs_unet_forward $NUM_EPOCHS_UNET_FORWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --tasknet_weights_load $TASKNET_WEIGHTS_LOAD --weight $WEIGHT
    mkdir -p "${EXPERIMENT_DIR}/${WEIGHT}_MAE/forward"
    cp $UNET_WEIGHTS_FW_TO_SAVE1 "${EXPERIMENT_DIR}/${WEIGHT}_MAE/forward"
@@ -47,13 +50,18 @@ for i in "0.5" "0.6" "0.7" "0.8" "0.9"; do
    mv $RESULTS_DIR "${EXPERIMENT_DIR}/${WEIGHT}_MAE/forward/${RESULTS_DIR}_fw"
    echo "Completed ${WEIGHT}_MAE forward experiment and copied results to ${EXPERIMENT_DIR} folder"
    
+   # validation
    python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --num_epochs_unet_forward $NUM_EPOCHS_UNET_FORWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --tasknet_weights_load $TASKNET_WEIGHTS_LOAD --not_use_custom_filter_prop --unet_fw_weights_load "${EXPERIMENT_DIR}/${WEIGHT}_MAE/forward/${UNET_FW}" --val_forward_batch1 --weight $WEIGHT
 mv $RESULTS_DIR "${EXPERIMENT_DIR}/${WEIGHT}_MAE/forward/val_results_batch1"
 echo "Completed ${WEIGHT}_MAE Validation with Batch Size 1"
    
+   # generate disturbed dataset
    python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --save_disturbed_dataset --unet_fw_weights_load $UNET_WEIGHTS_LOAD_FW
 
+   # training attack model
    python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --num_epochs_unet_backward $NUM_EPOCHS_UNET_BACKWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --train_model_backward
+   
+   # dissimilarity metrics
    python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet 1 --results_dir $RESULTS_DIR --compute_similarity_metrics --unet_bw_weights_load $UNET_WEIGHTS_LOAD_BW
    mkdir -p "${EXPERIMENT_DIR}/${WEIGHT}_MAE/backward"
    mv $UNET_WEIGHTS_BW_TO_SAVE1 "${EXPERIMENT_DIR}/${WEIGHT}_MAE/backward"
@@ -61,15 +69,17 @@ echo "Completed ${WEIGHT}_MAE Validation with Batch Size 1"
    mv $RESULTS_DIR "${EXPERIMENT_DIR}/${WEIGHT}_MAE/backward/${RESULTS_DIR}_bw"
    echo "Completed ${WEIGHT}_MAE backward experiment and copied results to ${EXPERIMENT_DIR} folder"
    
+   # test
    python3 main.py --test_model --tasknet_weights_load $TASKNET_WEIGHTS_LOAD --unet_fw_weights_load "${EXPERIMENT_DIR}/${WEIGHT}_MAE/forward/${UNET_FW}" --unet_bw_weights_load "${EXPERIMENT_DIR}/${WEIGHT}_MAE/backward/${UNET_BW}" --results_dir $RESULTS_DIR
    mv $RESULTS_DIR "${EXPERIMENT_DIR}/${WEIGHT}_MAE/test_results"
    echo "Completed ${WEIGHT}_MAE test"
 done
 
+#MAE + filtering 2pos2neg
 for i in "0.5" "0.6" "0.7" "0.8" "0.9"; do
    a=( $i )
    WEIGHT=${a[0]}
-   python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --num_epochs_unet_forward $NUM_EPOCHS_UNET_FORWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --tasknet_weights_load $TASKNET_WEIGHTS_LOAD --weight $WEIGHT
+   python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --num_epochs_unet_forward $NUM_EPOCHS_UNET_FORWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --tasknet_weights_load $TASKNET_WEIGHTS_LOAD --weight $WEIGHT --prop_pos 2 --prop_neg 2
    mkdir -p "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/forward"
    cp $UNET_WEIGHTS_FW_TO_SAVE1 "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/forward"
    mv $UNET_WEIGHTS_FW_TO_SAVE2 "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/forward"
@@ -95,6 +105,7 @@ echo "Completed ${WEIGHT}_2pos2neg_MAE Validation with Batch Size 1"
    echo "Completed ${WEIGHT}_2pos2neg_MAE test"
 done
 
+#MAE + filtering 4pos4neg
 for i in "0.5" "0.6" "0.7" "0.8" "0.9"; do
    a=( $i )
    WEIGHT=${a[0]}
