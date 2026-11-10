@@ -54,12 +54,13 @@ def adjust_outputs_to_cocoeval_api(targets, outputs, reconstructed=None):
          pred['boxes'][i] = torch.tensor([resized_xm, resized_ym, resized_xM, resized_yM], device=box.device)
    return outputs
 
-def train_model(train_dataloader, epoch, device, model, tasknet, model_optimizer): #Train model
+def train_model(train_dataloader, epoch, device, model, tasknet, model_optimizer, accum_steps=1): #Train model
    model.train()
    tasknet.train()
    batch_size = len(train_dataloader)
    running_loss = 0
-   for imgs, targets in tqdm(train_dataloader, desc=f'Epoch {epoch} - Train model'):
+   model_optimizer.zero_grad(set_to_none=True)
+   for i, (imgs, targets) in enumerate(tqdm(train_dataloader, desc=f'Epoch {epoch} - Train model')):
       imgs, _ = imgs.decompose()
       imgs = imgs.to(device)
       targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]
@@ -86,9 +87,12 @@ def train_model(train_dataloader, epoch, device, model, tasknet, model_optimizer
       reconstructed_loss_dict = tasknet(reconstructed, targets) #grab tasknet losses
       reconstructed_losses = sum(loss for loss in reconstructed_loss_dict.values()) 
       true_loss=reconstructed_losses
-      model_optimizer.zero_grad(set_to_none=True) #backpropagation
-      true_loss.backward()
-      model_optimizer.step()		
+      actual_accum_steps = min(accum_steps, batch_size - (i // accum_steps) * accum_steps)
+      loss_to_backward = true_loss / actual_accum_steps
+      loss_to_backward.backward()
+      if (i + 1) % accum_steps == 0 or (i + 1) == batch_size:
+         model_optimizer.step()
+         model_optimizer.zero_grad(set_to_none=True)
       running_loss += true_loss.item() #storing value
       
    running_loss /= batch_size #average loss
@@ -183,13 +187,14 @@ def test_model(test_dataloader, device, tasknet, model, ap_score_threshold, resu
    return 
 
 
-def train_model_dissim(train_dataloader, epoch, device, model, tasknet, model_optimizer, weight): #Train model
+def train_model_dissim(train_dataloader, epoch, device, model, tasknet, model_optimizer, weight, accum_steps=1): #Train model
    model.train()
    tasknet.train()
    batch_size = len(train_dataloader)
    running_loss = 0
    mae_loss = torch.nn.L1Loss()
-   for imgs, targets in tqdm(train_dataloader, desc=f'Epoch {epoch} - Train model'):
+   model_optimizer.zero_grad(set_to_none=True)
+   for i, (imgs, targets) in enumerate(tqdm(train_dataloader, desc=f'Epoch {epoch} - Train model')): # enumerate to compute comulative gradients
       imgs, _ = imgs.decompose()
       imgs = imgs.to(device)
       targets = [{k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in t.items()} for t in targets]		
@@ -200,9 +205,12 @@ def train_model_dissim(train_dataloader, epoch, device, model, tasknet, model_op
       reconstructed_losses = sum(loss for loss in reconstructed_loss_dict.values()) 
       noise = torch.zeros(reconstructed.size(), dtype=torch.float32, device=device)
       true_loss = (1-weight)*reconstructed_losses + weight*mae_loss(reconstructed, noise)
-      model_optimizer.zero_grad(set_to_none=True) #backpropagation
-      true_loss.backward()
-      model_optimizer.step()		
+      actual_accum_steps = min(accum_steps, batch_size - (i // accum_steps) * accum_steps)
+      loss_to_backward = true_loss / actual_accum_steps
+      loss_to_backward.backward()
+      if (i + 1) % accum_steps == 0 or (i + 1) == batch_size: # update weights after accum_steps or at the end of the batch
+         model_optimizer.step()
+         model_optimizer.zero_grad(set_to_none=True)
       running_loss += true_loss.item() #storing value   
    running_loss /= batch_size #average loss
    return running_loss
@@ -329,7 +337,7 @@ def generate_disturbed_dataset(train_dataloader_gen_disturbed, val_dataloader_ge
       json.dump(disturbed_list, json_file, indent=2)
    return
 
-def train_model_bw(train_dataloader, epoch, device, model, model_optimizer, mia=False): #train model backward
+def train_model_bw(train_dataloader, epoch, device, model, model_optimizer, mia=False, accum_steps=1): #train model backward
    model.train()
    batch_size = len(train_dataloader)
    running_loss = 0
@@ -339,7 +347,8 @@ def train_model_bw(train_dataloader, epoch, device, model, model_optimizer, mia=
       loss = ComputeRecLoss(MAX=1.0, w_grad=5)
       print('USE MIA LOSS')
 
-   for disturbed_imgs, orig_imgs in tqdm(train_dataloader, desc=f'Epoch {epoch} - Train model'):
+   model_optimizer.zero_grad(set_to_none=True)
+   for i, (disturbed_imgs, orig_imgs) in enumerate(tqdm(train_dataloader, desc=f'Epoch {epoch} - Train model')):
       disturbed_imgs, _ = disturbed_imgs.decompose()
       disturbed_imgs = disturbed_imgs.to(device)
       orig_imgs, _ = orig_imgs.decompose()
@@ -368,9 +377,12 @@ def train_model_bw(train_dataloader, epoch, device, model, model_optimizer, mia=
       orig_imgs = trans(orig_imgs) #resize original to reconstructed one as it will have slighlty less pixels
       true_loss = loss(reconstructed, orig_imgs)
       
-      model_optimizer.zero_grad(set_to_none=True)
-      true_loss.backward() 
-      model_optimizer.step()		
+      actual_accum_steps = min(accum_steps, batch_size - (i // accum_steps) * accum_steps)
+      loss_to_backward = true_loss / actual_accum_steps
+      loss_to_backward.backward()
+      if (i + 1) % accum_steps == 0 or (i + 1) == batch_size:
+         model_optimizer.step()
+         model_optimizer.zero_grad(set_to_none=True)
       running_loss += true_loss.item()	
    running_loss /= batch_size
    return running_loss

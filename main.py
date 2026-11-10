@@ -43,6 +43,7 @@ def get_args_parser():
    #Num epochs and Batch Size
    parser.add_argument('--batch_size_tasknet', default=8, type=int, help='Batch size for experiments with Tasknet, default value 8')
    parser.add_argument('--batch_size_unet', default=4, type=int, help='Batch size for experiments with UNet, default value 4')
+   parser.add_argument('--accum_steps', default=1, type=int, help='Gradient accumulation steps for UNet training to simulate larger batch size (default 1)')
    parser.add_argument('--num_epochs_tasknet', default=10, type=int, help='Number of epochs for fine tuning Tasknet. The default value of 10 is more than enough for fine tuning')
    parser.add_argument('--num_epochs_unet_forward', default=50, type=int, help='Number of epochs for training the UNet forward (default value 50)')
    parser.add_argument('--num_epochs_unet_backward', default=80, type=int, help='Number of epochs for training the UNet backward (default value 100)')
@@ -231,7 +232,9 @@ def main(args):
       os.makedirs(tasknet_weights_dir)
       
    #Models used for measuring reconstruction
-   if not args.train_tasknet:
+   lpips_model = None
+   ms_ssim_module = None
+   if not args.train_tasknet and (args.train_model_backward or args.compute_similarity_metrics or args.test_model_backward or args.test_model): # load LPIPS and MS-SSIM models only if needed
       from lpips.lpips import LPIPS
       lpips_model = LPIPS().to(args.device) #LPIPS(net='vgg').to(device) #vgg best if i backpropagate with LPIPS loss; I want to use it only as metric, so Alex is faster and perform better
       lpips_model.eval()
@@ -455,11 +458,11 @@ def main(args):
          param.requires_grad = False
       for epoch in range(starting_epoch, args.num_epochs_unet_forward+1):
          if args.weight == 0.0: #loops without weights
-            train_temp_loss = train_model(train_dataloader, epoch, args.device, unet, tasknet, unet_optimizer)
+            train_temp_loss = train_model(train_dataloader, epoch, args.device, unet, tasknet, unet_optimizer, args.accum_steps)
             val_temp_loss = val_model(val_dataloader, epoch, args.device, unet, args.unet_save_path, tasknet, unet_optimizer,
                unet_scheduler, args.ap_score_thresh, args.results_dir, args.num_epochs_unet_forward, args.save_all_weights, example_dataloader)
          else:
-            train_temp_loss = train_model_dissim(train_dataloader, epoch, args.device, unet, tasknet, unet_optimizer, args.weight)
+            train_temp_loss = train_model_dissim(train_dataloader, epoch, args.device, unet, tasknet, unet_optimizer, args.weight, args.accum_steps)
             val_temp_loss = val_model_dissim(val_dataloader, epoch, args.device, unet, args.unet_save_path, tasknet, unet_optimizer,
                unet_scheduler, args.ap_score_thresh, args.results_dir, args.num_epochs_unet_forward, args.save_all_weights, example_dataloader, args.weight)
          #unet_scheduler.step()
@@ -472,7 +475,7 @@ def main(args):
    #TRAINING BACKWARD BLOCK 			
    else:
       for epoch in range(starting_epoch, args.num_epochs_unet_backward+1):
-         train_temp_loss = train_model_bw(disturbed_train_dataloader, epoch, args.device, unet, unet_optimizer, args.mia)
+         train_temp_loss = train_model_bw(disturbed_train_dataloader, epoch, args.device, unet, unet_optimizer, args.mia, args.accum_steps)
          val_temp_loss = val_model_bw(disturbed_val_dataloader, epoch, args.device, unet, args.unet_save_path,
             unet_optimizer, unet_scheduler, args.results_dir, args.num_epochs_unet_backward, args.save_all_weights, lpips_model, ms_ssim_module, example_dataloader, mia=args.mia)
          #unet_scheduler.step()

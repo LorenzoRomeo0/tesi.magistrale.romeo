@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -u -e #safety net to avoid using not setted variables
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True # allow for non contiguous video memory allocation
 cd ..
 
 RESULTS_DIR='results'
@@ -19,7 +20,8 @@ EXPERIMENT_DIR='experiments' #used to store the backup results
 mkdir -p $EXPERIMENT_DIR
 
 USE_DATASET_SUBSET=0
-BATCH_SIZE_UNET=4
+BATCH_SIZE_UNET=1
+ACCUM_STEPS=4        # gradient accumulation
 
 UNET_WEIGHTS_FW_TO_SAVE1="${UNET_SAVE_PATH}_fw_${NUM_EPOCHS_UNET_FORWARD}.pt"
 HALF_WAY=$((NUM_EPOCHS_UNET_FORWARD/2))
@@ -40,7 +42,7 @@ UNET_WEIGHTS_BW_TO_SAVE2="${UNET_SAVE_PATH}_bw_${HALF_WAY}.pt"
 for i in "0.7"; do
    a=( $i )
    WEIGHT=${a[0]}
-   python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --num_epochs_unet_forward $NUM_EPOCHS_UNET_FORWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --tasknet_weights_load $TASKNET_WEIGHTS_LOAD --weight $WEIGHT --prop_pos 2 --prop_neg 2
+   python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --accum_steps $ACCUM_STEPS --num_epochs_unet_forward $NUM_EPOCHS_UNET_FORWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --tasknet_weights_load $TASKNET_WEIGHTS_LOAD --weight $WEIGHT --prop_pos 2 --prop_neg 2
    mkdir -p "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/forward"
    cp $UNET_WEIGHTS_FW_TO_SAVE1 "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/forward"
    mv $UNET_WEIGHTS_FW_TO_SAVE2 "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/forward"
@@ -53,7 +55,7 @@ echo "Completed ${WEIGHT}_2pos2neg_MAE Validation with Batch Size 1"
    
    python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --save_disturbed_dataset --unet_fw_weights_load $UNET_WEIGHTS_LOAD_FW
 
-   python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --num_epochs_unet_backward $NUM_EPOCHS_UNET_BACKWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --train_model_backward
+   python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet $BATCH_SIZE_UNET --accum_steps $ACCUM_STEPS --num_epochs_unet_backward $NUM_EPOCHS_UNET_BACKWARD --unet_save_path $UNET_SAVE_PATH --results_dir $RESULTS_DIR --train_model_backward
    python3 main.py --use_dataset_subset $USE_DATASET_SUBSET --batch_size_unet 1 --results_dir $RESULTS_DIR --compute_similarity_metrics --unet_bw_weights_load $UNET_WEIGHTS_LOAD_BW
    mkdir -p "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/backward"
    mv $UNET_WEIGHTS_BW_TO_SAVE1 "${EXPERIMENT_DIR}/${WEIGHT}_2pos2neg_MAE/backward"
